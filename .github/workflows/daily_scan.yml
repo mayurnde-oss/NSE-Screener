@@ -1,0 +1,59 @@
+name: Daily India Stock Rebound Scan
+on:
+  schedule:
+    - cron: '15 19 * * 1-5'
+      timezone: 'Asia/Kolkata'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: indian-rebound-eod
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: '1'
+      PRICE_PROVIDER: yahoo_research
+      # Set only after reading data provider terms; research/personal-use limits apply.
+      ALLOW_YAHOO_RESEARCH: ${{ vars.ALLOW_YAHOO_RESEARCH }}
+      SHEETS_ENABLED: 'true'
+      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Restore optional price cache (never trusted as authoritative)
+        uses: actions/cache/restore@v4
+        with:
+          path: data/cache
+          key: scanner-prices-${{ github.run_id }}
+          restore-keys: |
+            scanner-prices-
+      - name: Run tests
+        run: pytest -q
+      - name: Scan last completed Indian exchange session
+        run: python -m src.cli --config config.yaml
+      - name: Save optional price cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/cache
+          key: scanner-prices-${{ github.run_id }}
+      - name: Save diagnostic outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanner-output-${{ github.run_id }}
+          path: output/
+          if-no-files-found: ignore
+          retention-days: 14
