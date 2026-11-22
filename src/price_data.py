@@ -12,7 +12,7 @@ from .config import Settings
 
 LOG = logging.getLogger(__name__)
 COLS = ('Open', 'High', 'Low', 'Close', 'Volume')
-SAFE_TICKER = re.compile(r'^[A-Z0-9^._-]{1,40}$')
+SAFE_TICKER = re.compile(r'^[A-Z0-9^._&-]{1,40}$')
 
 
 def normalize_prices(df: pd.DataFrame, as_of: date | None = None) -> pd.DataFrame:
