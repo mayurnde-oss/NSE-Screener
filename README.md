@@ -76,14 +76,12 @@ Relative strength ranks are *custom 0–100 percentiles* of weighted 3/6/12-mont
 
 ## 4. GitHub Actions daily automation
 
-1. Create a **private repository** and upload project files. For current full-universe scanning, supply `data/nifty500.csv` from the authorized source; do not place prohibited/licensed input data into publicly visible repositories.
-2. In Repository **Settings → Secrets and variables → Actions**, create secrets:
-   - `GOOGLE_SHEET_ID`: spreadsheet ID.
-   - `GOOGLE_SERVICE_ACCOUNT_JSON`: full JSON key text (never commit to repo).
-3. Add repository **Variable** `ALLOW_YAHOO_RESEARCH = true` **only if your Yahoo use is allowed**. The workflow will fail safe until you do this. For CSV-only mode, modify `PRICE_PROVIDER` to `csv` and provide legitimately obtained daily CSVs through a suitable authorized pipeline.
-4. On the default branch enable Actions. Open **Actions → Daily India Stock Rebound Scan → Run workflow** for a first manual test.
-5. `.github/workflows/daily_scan.yml` runs weekdays at **19:15 Asia/Kolkata**. GitHub Actions supports timezone-aware cron as of 2026; if using older runners or alternate orchestration, the UTC equivalent is `45 13 * * 1-5` (13:45 UTC = 19:15 IST). GitHub scheduler can be delayed/dropped; Actions logs are required for troubleshooting.
-6. The workflow saves optional price caches and diagnostic CSV artifacts. Cache files may be evicted; **Signal History in Google Sheets** is the durable cross-run record.
+1. The deployed workflow downloads the published Nifty constituent CSV into its runner. It accepts an existing `data/nifty500.csv` as an override. Each run records the exact TejHQ dataset revision used in `output/market_source.json`. Keep user-supplied licensed inputs out of public commits.
+2. Scheduled runs use the CSV scanner with TejHQ adjusted NSE end-of-day history sourced from exchange bhavcopies. The same cumulative factor is applied to open, high, low and close. Source history begins in 2015. Missing instruments appear in `errors.csv`. The Yahoo adapter remains available for explicitly enabled local research.
+3. For Google Sheets publishing, enable the Sheets API in your Google Cloud project, grant the service account Editor access to the destination Sheet, and set repository Actions secrets `GOOGLE_SHEET_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON`. Until the service-account credential is supplied, GitHub emits CSV results and the Sheet can be updated separately.
+4. Open **Actions → Daily India Stock Rebound Scan → Run workflow** and select a trading date (YYYY-MM-DD), or leave the field blank to use the current date in India. Use a recent session. This workflow uses current index membership and current corporate-action adjustments, so it is unsuitable for point-in-time backtests.
+5. The daily workflow runs weekdays at **22:15 Asia/Kolkata** to give the end-of-day source time to publish. An unavailable or stale session fails the coverage checks.
+6. The workflow keeps its CSV results as a GitHub Actions artifact for 14 days. Google Sheets provides cross-run signal history when configured. Artifact-only runs use a fresh checkout and do not preserve signal history across runs.
 7. If data is stale, the official holiday file is missing a holiday, or fewer than 85% of stocks have fresh prices, **the job fails closed rather than silently publishing misleading empty results**. Full-universe failures are recorded to `Scan Logs` (when Sheets is connected) without clearing the last good dashboard. Calendar file `data/holidays.csv` accepts `date,name` records and should be manually reviewed annually.
 8. GitHub Free private Actions usage has plan-dependent included allowance; monitor Actions minutes and artifact storage to avoid charges. The scan duration depends on provider throttling, data volume and rate limits.
 
