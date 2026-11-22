@@ -1,29 +1,23 @@
 name: Daily India Stock Rebound Scan
 on:
   schedule:
-    - cron: '15 19 * * 1-5'
+    - cron: '15 22 * * 1-5'
       timezone: 'Asia/Kolkata'
   workflow_dispatch:
-
+    inputs:
+      as_of:
+        description: 'Trading session YYYY-MM-DD (blank uses today in India)'
+        required: false
+        type: string
 permissions:
   contents: read
-
 concurrency:
   group: indian-rebound-eod
   cancel-in-progress: false
-
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      PYTHONUNBUFFERED: '1'
-      PRICE_PROVIDER: yahoo_research
-      # Set only after reading data provider terms; research/personal-use limits apply.
-      ALLOW_YAHOO_RESEARCH: ${{ vars.ALLOW_YAHOO_RESEARCH }}
-      SHEETS_ENABLED: 'true'
-      GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,25 +25,32 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Restore optional price cache (never trusted as authoritative)
-        uses: actions/cache/restore@v4
-        with:
-          path: data/cache
-          key: scanner-prices-${{ github.run_id }}
-          restore-keys: |
-            scanner-prices-
+        run: pip install -r requirements.txt 'pyarrow>=17,<24'
       - name: Run tests
-        run: pytest -q
-      - name: Scan last completed Indian exchange session
-        run: python -m src.cli --config config.yaml
-      - name: Save optional price cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: data/cache
-          key: scanner-prices-${{ github.run_id }}
-      - name: Save diagnostic outputs
+        run: python -m pytest -q
+      - name: Prepare adjusted EOD price histories
+        env:
+          AS_OF: ${{ inputs.as_of }}
+        run: |
+          args=()
+          if [[ -n "$AS_OF" ]]; then args+=(--as-of "$AS_OF"); fi
+          python -m src.prepare_eod "${args[@]}"
+      - name: Scan the requested Indian trading session
+        env:
+          AS_OF: ${{ inputs.as_of }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          args=(--source csv)
+          if [[ -n "$AS_OF" ]]; then args+=(--as-of "$AS_OF"); fi
+          if [[ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]]; then
+            export SHEETS_ENABLED=true
+          else
+            echo "::notice::Sheets publishing is pending a service account. CSV results will be saved."
+            args+=(--no-sheets)
+          fi
+          python -m src.cli "${args[@]}"
+      - name: Save scanner results
         if: always()
         uses: actions/upload-artifact@v4
         with:
