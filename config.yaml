@@ -1,0 +1,29 @@
+# Copy to config.yaml, then customize; environment variables take priority where documented.
+timezone: Asia/Kolkata
+universe_path: data/nifty500.csv
+price_provider: yahoo_research   # Alternative: csv (data/prices/SYMBOL.NS.csv)
+allow_yahoo_research: false     # Set true ONLY after checking your usage rights
+history_start: '2015-01-01'
+price_cache_dir: data/cache
+full_refresh_days: 30
+batch_size: 12
+min_daily_rows: 420
+# Each EMA has its own minimum observations (period plus warmup).
+min_weekly_150_observations: 200
+min_weekly_observations: 250
+# Exact signal: candle high < lower BB; daily candle range within EMA proximity.
+bb_period: 20
+bb_std: 1.5
+ema_periods: [150, 200]
+strict_proximity_pct: 2.0
+near_proximity_pct: 5.0
+fundamental_score_min: 70.0
+fundamental_coverage_min: 70.0
+fundamentals_csv: data/fundamentals.csv
+holiday_csv: data/holidays.csv
+# This must be the exact target exchange trading date; missing current daily data fails closed.
+close_time_ist: '15:30'
+output_dir: output
+sheets_enabled: false
+# To enable: set sheets_enabled: true and GOOGLE_SHEET_ID plus GOOGLE_SERVICE_ACCOUNT_JSON
+telegram_enabled: false

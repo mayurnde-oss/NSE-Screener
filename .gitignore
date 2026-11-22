@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+*.pyc
+service-account*.json
+*credentials*.json
+config.local.yaml
+data/cache/
+data/state/
+output/
+!output/.gitkeep
