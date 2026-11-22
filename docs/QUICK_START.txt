@@ -1,0 +1,19 @@
+INDIAN STOCK REBOUND SCANNER — FIRST RUN
+=========================================
+1. Unzip the project on a computer with Python 3.12.
+2. Open a terminal in the unzipped project folder.
+3. Run: pip install -r requirements.txt
+4. Run: pytest -q
+5. To test WITHOUT a real API: python scripts_generate_demo.py
+6. Then run: python -m src.cli --source csv --universe data/demo_universe.csv --as-of 2026-11-19 --no-sheets
+7. Read output/run_summary.json and output/all_stocks.csv.
+8. Download NIFTY 500 constituents MANUALLY from the official NIFTY Indices page:
+   https://www.niftyindices.com/indices/equity/broad-based-indices/NIFTY-500
+9. Save the constituents as data/nifty500.csv, after checking usage permissions.
+10. Choose a data provider in config.yaml. The Yahoo research adapter has personal-use/permission restrictions and is OFF until explicitly enabled; use authorized CSV price data otherwise.
+11. For the Google Sheets dashboard, create a private Sheet, authorize a service account as Editor, store GOOGLE_SHEET_ID and GOOGLE_SERVICE_ACCOUNT_JSON as environment variables or GitHub Secrets, and enable SHEETS_ENABLED.
+12. For GitHub schedule, upload project files to a PRIVATE repo, supply the universe file, configure Secrets, and explicitly opt into Yahoo research ONLY if you are permitted to use it.
+13. Run Actions > Daily India Stock Rebound Scan > Run workflow to test.
+14. Wait for a verified market close to run daily scans. Do not trust demo data or incomplete fundamentals for investment decisions.
+
+For exact instructions, source restrictions, CSV schemas and troubleshooting, read README.md.
