@@ -10,6 +10,7 @@ from .price_data import SAFE_TICKER
 API = 'https://api.dharun.dev/v1/indices/nifty-500'
 # Optional additional provider: operator supplies a permitted HTTPS CSV URL and
 # its independently verified snapshot date. No scraping or access-block bypass.
+TRACKER = 'https://raw.githubusercontent.com/floyds1995/Auto-Index-Constituents-Tracker/main/NSE/Nifty_500.csv'
 CACHE_MAX_DAYS = 21
 COLS = ['Company Name', 'Industry', 'Symbol', 'Series', 'ISIN Code']
 
@@ -62,6 +63,17 @@ def from_api(raw, now):
             for m in members]
     return validate(pd.DataFrame(rows).to_csv(index=False).encode()), stamp
 
+def tracker_members(raw, now):
+    frame = pd.read_csv(BytesIO(raw), dtype=str, keep_default_na=False)
+    dates = pd.to_datetime(frame['date'], format='%m/%d/%Y', errors='raise', utc=True)
+    idx = dates.idxmax()
+    stamp = fresh(dates.loc[idx], now)
+    symbols = [s.strip() for s in frame.loc[idx, 'tickers'].split(',')]
+    if (not 490 <= len(symbols) <= 520 or len(set(symbols)) != len(symbols)
+            or not all(SAFE_TICKER.fullmatch(s + '.NS') for s in symbols)):
+        raise ValueError('Invalid tracked NIFTY 500 membership')
+    return symbols, stamp
+
 def resolve_universe(root, now=None):
     import os
     now = pd.Timestamp.now(tz='UTC') if now is None else now
@@ -100,6 +112,15 @@ def resolve_universe(root, now=None):
         return validate(raw), obj['source'], {'retrieved':stamp,'fallback':True,'attempt_errors':failures}
     except Exception as exc:
         failures.append({'source':'validated cache','error':str(exc)})
+    # Independently maintained dated NIFTY 500 membership history. It contains
+    # symbols only; resolve ISINs from the price dataset before writing any CSV.
+    try:
+        symbols, stamp = tracker_members(fetch(TRACKER), now)
+        return None, TRACKER, {'retrieved':stamp,'fallback':True,
+                               'symbols':symbols,'attempt_errors':failures,
+                               'industry_status':'unverified'}
+    except Exception as exc:
+        failures.append({'source':TRACKER,'error':str(exc)})
     # Explicit dated local snapshot is a recovery option, not an automatic refresh.
     try:
         stamp = fresh(os.environ['NIFTY500_LOCAL_AS_OF'], now)

@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
@@ -28,13 +28,28 @@ jobs:
         run: pip install -r requirements.txt 'pyarrow>=17,<24'
       - name: Run tests
         run: python -m pytest -q
+      - name: Restore validated constituent cache
+        uses: actions/cache/restore@v5
+        with:
+          path: data/cache/nifty500_snapshot.json
+          key: nifty500-validated-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: nifty500-validated-v1-
       - name: Prepare adjusted EOD price histories
         env:
           AS_OF: ${{ inputs.as_of }}
+          NIFTY500_CSV_URL: ${{ secrets.NIFTY500_CSV_URL }}
+          NIFTY500_CSV_AS_OF: ${{ vars.NIFTY500_CSV_AS_OF }}
+          NIFTY500_LOCAL_AS_OF: ${{ vars.NIFTY500_LOCAL_AS_OF }}
         run: |
           args=()
           if [[ -n "$AS_OF" ]]; then args+=(--as-of "$AS_OF"); fi
           python -m src.prepare_eod "${args[@]}"
+      - name: Save validated constituent cache
+        if: always() && hashFiles('data/cache/nifty500_snapshot.json') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: data/cache/nifty500_snapshot.json
+          key: nifty500-validated-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Scan the requested Indian trading session
         env:
           AS_OF: ${{ inputs.as_of }}
@@ -52,7 +67,7 @@ jobs:
           python -m src.cli "${args[@]}"
       - name: Save scanner results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: scanner-output-${{ github.run_id }}
           path: output/

@@ -176,7 +176,7 @@ def run(argv=None) -> int:
     add_universe_ranks(records)
     fundamental_csv = FundamentalCSV(settings.path(settings.fundamentals_csv))
     for r in records:
-        if r['technical_bucket'] == 'STRICT_MATCH':
+        if r['technical_bucket'] == 'STRICT_MATCH' and r['industry'] != 'Unknown':
             metrics = score_fundamentals(
                 r['ticker'],r['industry'],as_of,fundamental_csv,r['rs_percentile'],
                 r['industry_rs_percentile'],settings.fundamental_score_min,

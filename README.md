@@ -110,3 +110,7 @@ Transitions tracked in `Signal History`: initial setup (qualified, unverified, o
 - `docs/QUICK_START.txt`: concise initial installation steps.
 - `docs/TECHNICAL_SPEC.md`: exact indicator, scoring, and state definitions.
 - `docs/dashboard_template.xlsx`: optional Google Sheets-compatible starter workbook. Upload the `.xlsx` to Google Drive and open as a native Sheet, or create a blank native Sheet and let the exporter create tabs automatically.
+
+## Constituent resilience
+
+Current official NIFTY 500 membership is retained. India API is attempted, then a checksum-validated snapshot (21-day maximum), then a dated symbol-only independent tracker (https://github.com/floyds1995/Auto-Index-Constituents-Tracker). The tracker is not NSE itself: ISINs are resolved against the exact session price dataset, unresolved symbols remain in the coverage denominator, and industry is unknown (fundamental qualification withheld). Tracker snapshots older than 21 days are rejected. A permitted full CSV endpoint may be configured with NIFTY500_CSV_URL (secret) and NIFTY500_CSV_AS_OF (timezone-aware variable). A dated local CSV may be used with NIFTY500_LOCAL_AS_OF. The cache never extends the source date. Current membership is not suitable for historical backtesting. Public repository caches and artifacts must contain only data permitted for redistribution; review provider rights before use. No guarantee that any online provider is available on a given run.

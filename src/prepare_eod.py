@@ -39,7 +39,8 @@ def main():
     root = Path('data')
     universe_path = root / 'nifty500.csv'
     content, source, source_meta = resolve_universe(root)
-    universe = pd.read_csv(BytesIO(content), dtype=str, keep_default_na=False)
+    universe = (pd.read_csv(BytesIO(content), dtype=str, keep_default_na=False)
+                if content is not None else pd.DataFrame({'Symbol':source_meta['symbols'], 'ISIN Code':''}))
     metadata = json.loads(download('https://huggingface.co/api/datasets/' + DATASET))
     revision = metadata['sha']
     if not re.fullmatch('[0-9a-f]{40}', revision):
@@ -53,6 +54,34 @@ def main():
     data = pd.concat(frames, ignore_index=True)
     data['date'] = pd.to_datetime(data.date)
     data = data[(data.date <= pd.Timestamp(args.as_of)) & data.series.isin(['EQ', 'BE', 'BZ', 'RR'])]
+    if content is None:
+        # Resolve identity on the exact requested session; no arbitrary symbol/ISIN guess.
+        current = data[data.date == pd.Timestamp(args.as_of)]
+        mapping = current.groupby('symbol')['isin'].agg(lambda s: sorted(set(s.dropna())))
+        rows = []
+        for symbol in universe.Symbol:
+            ids = mapping.get(symbol, [])
+            valid = [i for i in ids if isinstance(i,str) and re.fullmatch(r'IN[A-Z0-9]{10}',i)]
+            # Keep every constituent in the denominator even if the price source
+            # cannot resolve it. Unresolved symbols get no history.
+            rows.append({'Company Name':symbol,'Industry':'Unknown','Symbol':symbol,
+                         'Series':'EQ','ISIN Code':valid[0] if len(valid)==1 else ''})
+        universe = pd.DataFrame(rows)
+        dup = universe['ISIN Code'].ne('') & universe['ISIN Code'].duplicated(keep=False)
+        universe.loc[dup,'ISIN Code'] = ''
+        content = universe.to_csv(index=False).encode()
+        source_meta['resolved_isins'] = int(universe['ISIN Code'].ne('').sum())
+        source_meta.pop('symbols',None)
+        # Reload older history for resolved ISINs under historical symbols.
+        frames = []
+        for year in range(2015,args.as_of.year+1):
+            url = f'https://huggingface.co/datasets/{DATASET}/resolve/{revision}/prices_adjusted/nse_{year}.parquet'
+            frame = pq.read_table(BytesIO(download(url)), columns=COLUMNS).to_pandas()
+            ids = universe.loc[universe['ISIN Code'].ne(''),'ISIN Code']
+            frames.append(frame[frame['isin'].isin(ids) | frame.symbol.isin(universe.Symbol)].copy())
+        data = pd.concat(frames,ignore_index=True)
+        data['date'] = pd.to_datetime(data.date)
+        data = data[(data.date <= pd.Timestamp(args.as_of)) & data.series.isin(['EQ','BE','BZ','RR'])]
     spans = data.groupby(['symbol', 'isin']).date.agg(['min', 'max']).reset_index()
     by_isin = dict(tuple(data.groupby('isin')))
     prices = root / 'prices'
@@ -60,7 +89,7 @@ def main():
     with TemporaryDirectory(dir=root) as temp:
         stage = Path(temp)
         for symbol, isin in zip(universe.Symbol, universe['ISIN Code']):
-            if isin not in by_isin:
+            if not isin or isin not in by_isin:
                 continue
             parts, used = [by_isin[isin]], {isin}
             # Include an earlier ISIN only for an unambiguous adjacent symbol history.
