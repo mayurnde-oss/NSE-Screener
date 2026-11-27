@@ -38,11 +38,34 @@ def main():
     root = Path('data')
     universe_path = root / 'nifty500.csv'
     # A privately supplied constituent file overrides the published CSV download.
-    content = universe_path.read_bytes() if universe_path.exists() else download(CONSTITUENTS)
+    source = 'https://api.dharun.dev/v1/indices/nifty-500'
+    source_meta = {}
+    if universe_path.exists():
+        content = universe_path.read_bytes()
+        source = str(universe_path)
+    else:
+        payload = json.loads(download(source))
+        index = payload['data']
+        members = index['members']
+        if index['id'] != 'nifty-500' or index['count'] != len(members):
+            raise ValueError('Incomplete or incorrect index API response')
+        source_meta = payload.get('meta', {}).get('source', {})
+        retrieved = pd.Timestamp(source_meta['retrieved'])
+        if retrieved.tzinfo is None:
+            raise ValueError('Index source timestamp must include timezone')
+        age = pd.Timestamp.now(tz='UTC') - retrieved
+        if age < pd.Timedelta(0) or age > pd.Timedelta(days=21):
+            raise ValueError(f'Index constituent source is stale or future dated: {retrieved}')
+        rows = [{'Company Name': m['company'], 'Industry': m['industry'],
+                 'Symbol': m['symbol'], 'Series': m['series'], 'ISIN Code': m['isin']}
+                for m in members]
+        content = pd.DataFrame(rows).to_csv(index=False).encode('utf-8')
     universe = pd.read_csv(BytesIO(content), dtype=str, keep_default_na=False)
     if not {'Symbol', 'Company Name', 'Industry', 'Series', 'ISIN Code'} <= set(universe.columns):
         raise ValueError('Invalid Nifty 500 constituent file')
-    if not 490 <= universe['ISIN Code'].nunique() <= 520:
+    if (not 490 <= len(universe) <= 520 or universe['ISIN Code'].duplicated().any()
+            or universe['Symbol'].duplicated().any()
+            or not universe['ISIN Code'].str.fullmatch(r'IN[A-Z0-9]{10}').all()):
         raise ValueError('Incomplete or unexpected Nifty 500 membership')
     if not universe.Symbol.map(lambda s: bool(SAFE_TICKER.fullmatch(s + '.NS'))).all():
         raise ValueError('Unexpected ticker in constituent file')
@@ -103,7 +126,7 @@ def main():
         universe_path.write_bytes(content)
     Path('output').mkdir(exist_ok=True)
     Path('output/market_source.json').write_text(json.dumps({
-        'as_of': str(args.as_of), 'constituents': CONSTITUENTS, 'dataset': DATASET,
+        'as_of': str(args.as_of), 'constituents': source, 'constituent_source_metadata': source_meta, 'dataset': DATASET,
         'revision': revision, 'basis': 'TejHQ cumulative adjustment applied to every OHLC field'
     }, indent=2))
 
