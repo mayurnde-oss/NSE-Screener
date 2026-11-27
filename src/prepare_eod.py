@@ -48,11 +48,25 @@ def main():
         url = f'https://huggingface.co/datasets/{DATASET}/resolve/{revision}/prices_adjusted/nse_{year}.parquet'
         return pq.read_table(BytesIO(download(url)), columns=COLUMNS).to_pandas()
 
-    latest_frame = None
+    # Inspect the actual adjusted data date before downloading older years.
+    latest_frame = read_year(args.as_of.year)
+    latest_frame['date'] = pd.to_datetime(latest_frame.date)
+    eligible = latest_frame[latest_frame.series.isin(['EQ','BE','BZ','RR'])]
+    relevant = eligible[eligible.symbol.isin(universe.Symbol)]
+    session_count = int(relevant.loc[relevant.date == pd.Timestamp(args.as_of), 'symbol'].nunique())
+    latest = relevant.date.max()
+    diagnostics = {
+        'as_of': str(args.as_of), 'constituents': source, 'dataset': DATASET,
+        'revision': revision, 'latest_provider_session': None if pd.isna(latest) else str(latest.date()),
+        'requested_session_symbol_count': session_count, 'universe': len(universe)
+    }
+    Path('output').mkdir(exist_ok=True)
+    Path('output/price_availability.json').write_text(json.dumps(diagnostics, indent=2))
+    print(json.dumps(diagnostics), flush=True)
+    if session_count < np.ceil(len(universe) * .85):
+        raise RuntimeError(f'PRICE DATA NOT READY: {session_count}/{len(universe)} symbols for {args.as_of}; latest provider date {latest}. Retry after provider update; no stale scan published.')
     if content is None:
         # Resolve identity on the exact requested session before downloading history.
-        latest_frame = read_year(args.as_of.year)
-        latest_frame['date'] = pd.to_datetime(latest_frame.date)
         current = latest_frame[(latest_frame.date == pd.Timestamp(args.as_of))
                                & latest_frame.series.isin(['EQ','BE','BZ','RR'])]
         mapping = current.groupby('symbol')['isin'].agg(lambda s: sorted(set(s.dropna())))
