@@ -43,7 +43,10 @@ def fetch(url):
     for attempt in range(2):
         try:
             with urlopen(url, timeout=25) as response:
-                return response.read(4_000_001)
+                raw = response.read(4_000_001)
+                if len(raw) > 4_000_000:
+                    raise ValueError('Constituent response too large')
+                return raw
         except HTTPError as exc:
             if exc.code in (401, 403, 404) or attempt:
                 raise
@@ -103,24 +106,37 @@ def resolve_universe(root, now=None):
         return save(content, API, stamp)
     except Exception as exc:
         failures.append({'source':API,'error':str(exc)})
+    # Refresh the independent tracker every run, not merely after cache expiry.
+    try:
+        raw = fetch(TRACKER)
+        symbols, stamp = tracker_members(raw, now)
+        meta = {'source':TRACKER,'retrieved':stamp,'kind':'tracker',
+                'sha256':hashlib.sha256(raw).hexdigest()}
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        tmp = cache.with_suffix('.tmp')
+        tmp.write_text(json.dumps({**meta,'csv':raw.decode()}))
+        tmp.replace(cache)
+        return None, TRACKER, {'retrieved':stamp,'fallback':True,
+                               'symbols':symbols,'attempt_errors':failures,
+                               'industry_status':'unverified'}
+    except Exception as exc:
+        failures.append({'source':TRACKER,'error':str(exc)})
     try:
         obj = json.loads(cache.read_text())
         stamp = fresh(obj['retrieved'], now)
         raw = obj['csv'].encode()
         if hashlib.sha256(raw).hexdigest() != obj['sha256']:
             raise ValueError('Cache checksum mismatch')
+        if obj.get('kind') == 'tracker':
+            symbols, original_stamp = tracker_members(raw, now)
+            if original_stamp != stamp:
+                raise ValueError('Cache source timestamp mismatch')
+            return None, TRACKER, {'retrieved':stamp,'fallback':True,
+                'symbols':symbols,'attempt_errors':failures,'industry_status':'unverified',
+                'cached':True}
         return validate(raw), obj['source'], {'retrieved':stamp,'fallback':True,'attempt_errors':failures}
     except Exception as exc:
         failures.append({'source':'validated cache','error':str(exc)})
-    # Independently maintained dated NIFTY 500 membership history. It contains
-    # symbols only; resolve ISINs from the price dataset before writing any CSV.
-    try:
-        symbols, stamp = tracker_members(fetch(TRACKER), now)
-        return None, TRACKER, {'retrieved':stamp,'fallback':True,
-                               'symbols':symbols,'attempt_errors':failures,
-                               'industry_status':'unverified'}
-    except Exception as exc:
-        failures.append({'source':TRACKER,'error':str(exc)})
     # Explicit dated local snapshot is a recovery option, not an automatic refresh.
     try:
         stamp = fresh(os.environ['NIFTY500_LOCAL_AS_OF'], now)

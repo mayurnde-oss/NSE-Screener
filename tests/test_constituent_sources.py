@@ -37,3 +37,28 @@ def test_cache_preserves_source_date(tmp_path, monkeypatch):
     assert meta['fallback'] and meta['retrieved'].startswith('2026-11-20')
     with pytest.raises(RuntimeError):
         resolve_universe(root,pd.Timestamp('2026-12-20T00:00:00Z'))
+
+
+def test_tracker_refresh_and_cache(tmp_path, monkeypatch):
+    from src import constituent_sources as c
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv('NIFTY500_CSV_URL', raising=False)
+    monkeypatch.delenv('NIFTY500_LOCAL_AS_OF', raising=False)
+    symbols = ','.join(f'S{i}' for i in range(500))
+    raw = f'date,tickers\n11/27/2026,"{symbols}"\n'.encode()
+    def online(url):
+        if url == c.TRACKER:
+            return raw
+        raise OSError('API unavailable')
+    monkeypatch.setattr(c,'fetch',online)
+    root = Path('data')
+    now = pd.Timestamp('2026-11-27T12:00:00Z')
+    _, _, meta = resolve_universe(root, now)
+    assert len(meta['symbols']) == 500
+    def offline(url):
+        raise OSError('offline')
+    monkeypatch.setattr(c,'fetch',offline)
+    _, _, meta = resolve_universe(root, now)
+    assert meta['cached'] and len(meta['symbols']) == 500
+    with pytest.raises(RuntimeError):
+        resolve_universe(root, pd.Timestamp('2026-12-20T12:00:00Z'))

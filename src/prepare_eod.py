@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .price_data import SAFE_TICKER
 from .constituent_sources import resolve_universe
 
 CONSTITUENTS = 'https://www.niftyindices.com/IndexConstituent/ind_nifty500list.csv'
@@ -45,25 +44,22 @@ def main():
     revision = metadata['sha']
     if not re.fullmatch('[0-9a-f]{40}', revision):
         raise ValueError('Invalid EOD dataset revision')
-    frames = []
-    for year in range(2015, args.as_of.year + 1):
+    def read_year(year):
         url = f'https://huggingface.co/datasets/{DATASET}/resolve/{revision}/prices_adjusted/nse_{year}.parquet'
-        frame = pq.read_table(BytesIO(download(url)), columns=COLUMNS).to_pandas()
-        relevant = frame['isin'].isin(universe['ISIN Code']) | frame.symbol.isin(universe.Symbol)
-        frames.append(frame[relevant].copy())
-    data = pd.concat(frames, ignore_index=True)
-    data['date'] = pd.to_datetime(data.date)
-    data = data[(data.date <= pd.Timestamp(args.as_of)) & data.series.isin(['EQ', 'BE', 'BZ', 'RR'])]
+        return pq.read_table(BytesIO(download(url)), columns=COLUMNS).to_pandas()
+
+    latest_frame = None
     if content is None:
-        # Resolve identity on the exact requested session; no arbitrary symbol/ISIN guess.
-        current = data[data.date == pd.Timestamp(args.as_of)]
+        # Resolve identity on the exact requested session before downloading history.
+        latest_frame = read_year(args.as_of.year)
+        latest_frame['date'] = pd.to_datetime(latest_frame.date)
+        current = latest_frame[(latest_frame.date == pd.Timestamp(args.as_of))
+                               & latest_frame.series.isin(['EQ','BE','BZ','RR'])]
         mapping = current.groupby('symbol')['isin'].agg(lambda s: sorted(set(s.dropna())))
         rows = []
         for symbol in universe.Symbol:
             ids = mapping.get(symbol, [])
             valid = [i for i in ids if isinstance(i,str) and re.fullmatch(r'IN[A-Z0-9]{10}',i)]
-            # Keep every constituent in the denominator even if the price source
-            # cannot resolve it. Unresolved symbols get no history.
             rows.append({'Company Name':symbol,'Industry':'Unknown','Symbol':symbol,
                          'Series':'EQ','ISIN Code':valid[0] if len(valid)==1 else ''})
         universe = pd.DataFrame(rows)
@@ -72,16 +68,15 @@ def main():
         content = universe.to_csv(index=False).encode()
         source_meta['resolved_isins'] = int(universe['ISIN Code'].ne('').sum())
         source_meta.pop('symbols',None)
-        # Reload older history for resolved ISINs under historical symbols.
-        frames = []
-        for year in range(2015,args.as_of.year+1):
-            url = f'https://huggingface.co/datasets/{DATASET}/resolve/{revision}/prices_adjusted/nse_{year}.parquet'
-            frame = pq.read_table(BytesIO(download(url)), columns=COLUMNS).to_pandas()
-            ids = universe.loc[universe['ISIN Code'].ne(''),'ISIN Code']
-            frames.append(frame[frame['isin'].isin(ids) | frame.symbol.isin(universe.Symbol)].copy())
-        data = pd.concat(frames,ignore_index=True)
-        data['date'] = pd.to_datetime(data.date)
-        data = data[(data.date <= pd.Timestamp(args.as_of)) & data.series.isin(['EQ','BE','BZ','RR'])]
+    frames = []
+    ids = universe.loc[universe['ISIN Code'].ne(''),'ISIN Code']
+    for year in range(2015, args.as_of.year + 1):
+        frame = latest_frame if year == args.as_of.year and latest_frame is not None else read_year(year)
+        relevant = frame['isin'].isin(ids) | frame.symbol.isin(universe.Symbol)
+        frames.append(frame[relevant].copy())
+    data = pd.concat(frames, ignore_index=True)
+    data['date'] = pd.to_datetime(data.date)
+    data = data[(data.date <= pd.Timestamp(args.as_of)) & data.series.isin(['EQ','BE','BZ','RR'])]
     spans = data.groupby(['symbol', 'isin']).date.agg(['min', 'max']).reset_index()
     by_isin = dict(tuple(data.groupby('isin')))
     prices = root / 'prices'
